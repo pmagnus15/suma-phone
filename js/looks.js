@@ -30,13 +30,15 @@ window.Suma = window.Suma || {};
   ];
 
   const PALETTE = {
-    skin: ['#f6d2b8', '#f0c8a0', '#e8b890', '#d9a070', '#c08a5a', '#a06a40', '#8d5a3b', '#5e3a24'],
-    hair: ['#1a1a22', '#2a1e18', '#5a3a22', '#7a4a2a', '#a8402e', '#d0602a', '#e8c45a', '#b8b8c0', '#9a5ad8', '#2a7ad8', '#3a9a5a'],
+    skin: ['#fbe0cc', '#f6d2b8', '#f0c8a0', '#e8b890', '#dda57a', '#d9a070', '#c08a5a', '#a87148', '#a06a40', '#8d5a3b', '#714428', '#5e3a24', '#4a2c1a'],
+    hair: ['#1a1a22', '#2a1e18', '#3a2a20', '#5a3a22', '#7a4a2a', '#a8402e', '#d0602a', '#e88a3a', '#e8c45a', '#f4e4a0', '#f0f0f0', '#b8b8c0', '#6a6a7a', '#ff6ab0', '#d83a6a', '#9a5ad8', '#5a3ad8', '#2a7ad8', '#3ab0c0', '#3a9a5a', '#7ad04a'],
     hairStyle: [['short', 'Short'], ['spiky', 'Spiky'], ['neat', 'Neat'], ['long', 'Long'], ['shaggy', 'Shaggy'], ['receding', 'Classic']],
-    shirt: ['#3a7ad8', '#d83a3a', '#3a9a5a', '#f0c040', '#9a5ad8', '#2aa0a8', '#f08a30', '#ff6ab0', '#e8e4d8', '#2a2a34'],
-    pants: ['#34405e', '#2a2a34', '#3a5a8a', '#5a4a3a', '#6a6a7a', '#e8c890'],
+    shirt: ['#3a7ad8', '#2a4a9a', '#5ab0f0', '#d83a3a', '#a01e2e', '#ff8a8a', '#3a9a5a', '#1e6a3a', '#9ad06a', '#f0c040', '#f08a30', '#ff6ab0', '#c03a90', '#9a5ad8', '#5a3a9a', '#2aa0a8', '#7ae0d0', '#8a5a33', '#c8a070', '#e8e4d8', '#ffffff', '#9aa0b0', '#4a4a58', '#2a2a34'],
+    pants: ['#34405e', '#2a3a6a', '#3a5a8a', '#6a8ac0', '#2a2a34', '#4a4a58', '#6a6a7a', '#9aa0b0', '#5a4a3a', '#8a5a33', '#c8a070', '#e8c890', '#3a5a3a', '#6a7a3a', '#7a2a3a', '#e8e4d8'],
     hat: [['', 'None'], ['cap', 'Cap'], ['beanie', 'Beanie'], ['headband', 'Headband']],
-    hatColor: ['#d83a3a', '#3a7ad8', '#2a2a34', '#f0c040', '#3a9a5a', '#9a5ad8', '#e8e4d8'],
+    hatColor: ['#d83a3a', '#3a7ad8', '#2a2a34', '#f0c040', '#3a9a5a', '#9a5ad8', '#e8e4d8', '#f08a30', '#ff6ab0', '#2aa0a8', '#8a5a33', '#ffffff'],
+    // Desks: classic woods, then painted.
+    desk: ['#c48d5c', '#a8703a', '#7a4c2c', '#e0b880', '#f4ecd8', '#ffffff', '#4a4a58', '#2a2a34', '#d83a3a', '#3a7ad8', '#3a9a5a', '#f0c040', '#ff6ab0', '#9a5ad8', '#2aa0a8'],
     extras: [['glasses', 'Glasses'], ['smile', 'Smile'], ['stubble', 'Stubble'], ['freckles', 'Freckles'], ['earrings', 'Earrings'], ['headphones', 'Headphones']],
   };
 

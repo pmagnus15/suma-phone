@@ -91,6 +91,20 @@ window.Suma = window.Suma || {};
       greeting: (n) => `Hi ${n}! Quinn, QA Engineer. I break the game on purpose, so you don't have to find the bugs yourself. Every time the team finishes something, the office checks it, and my tests make that check smart. Want to know how solid the game is right now?`,
       starters: ['Is the game working right now?', 'Test everything!', 'What could break?', 'Found a bug'],
     },
+    iris: {
+      name: 'Iris', role: 'Art Director', color: '#d0508a',
+      x: 11, y: 6, dir: 'down', computer: { x: 12, y: 7 },
+      look: { skin: '#f0c8a0', hair: '#1a1a22', hairStyle: 'long', shirt: '#f0e6d0', pants: '#2a2a34', accent: '#d0508a', band: '#d0508a', extras: ['smile', 'earrings', 'scarf', 'pen'] },
+      greeting: (n) => `Hi ${n}! I'm Iris, the Art Director. I help you figure out how your game LOOKS: colors, lighting, characters, the whole vibe. My drafting table is right here: we can sketch, find pictures you love, and pin them on a mood board. What should your game look like?`,
+      starters: ['Make a mood board with me', 'What should my game look like?', 'Sketch a character', 'Open the design desk'],
+    },
+    vince: {
+      name: 'Vince', role: 'Publishing & Licensing', color: '#3a8a6a',
+      x: 7, y: 5, dir: 'down', computer: { x: 8, y: 6 },
+      look: { skin: '#c08a5a', hair: '#2a2a34', hairStyle: 'neat', shirt: '#2a3a5a', pants: '#2a2a34', accent: '#c8a040', extras: ['tie', 'collar', 'watch', 'smile'] },
+      greeting: (n) => `${n}! Vince, Publishing and Licensing. When your game's ready, I get it out the door: store pages, licenses, ratings, pricing, launch day. Want to know what it takes to get your game on the market?`,
+      starters: ['How do we get on the market?', 'What should my game cost?', 'Are our assets okay to sell?', 'Make a launch plan'],
+    },
     nico: {
       name: 'Nico', role: 'Network Engineer', color: '#4a7ae0',
       x: 11, y: 12, dir: 'down', computer: { x: 12, y: 13 },
@@ -112,6 +126,8 @@ window.Suma = window.Suma || {};
     alex: [3, 12, 2], sam: [14, 5, 2], riley: [4, 6, 2], lyra: [3, 4, 2], marco: [17, 11, 2],
     nico: [11, 13, 2], quinn: [6, 13, 2],
     me: [12, 3, 2], // the player's own desk: reports tray + desk phone
+    iris: [10, 7, 3], // Iris's desk; its first tile is the design desk (drafting table)
+    vince: [7, 6, 2],
   };
   const BASE = Object.fromEntries(Object.entries(NPCS).map(([id, n]) => [id, { x: n.x, y: n.y, cx: n.computer.x, cy: n.computer.y }]));
   // Props that can move: tiles = where they stand by default; solid = you walk around them;
@@ -183,6 +199,8 @@ window.Suma = window.Suma || {};
     block(1, 8, { kind: 'cabinet' });
     block(1, 5, { kind: 'closet' }); // the storage closet: earned props, and "arrange the office"
     block(2, 3, { kind: 'story' }); // Lyra's story board: opens the Story Map
+    const [ix, iy] = deskOffset('iris');
+    block(10 + ix, 7 + iy, { kind: 'design', desk: 'iris' }); // the design desk: sketch, find pictures, mood board
     const [mx, my] = deskOffset('me');
     block(12 + mx, 3 + my, { kind: 'reports', desk: 'me' }); // the player's desk: the reports tray...
     block(13 + mx, 3 + my, { kind: 'phone', desk: 'me' }); // ...and the desk phone
@@ -192,7 +210,7 @@ window.Suma = window.Suma || {};
   }
   // Uses a new layout (from the save, or while arranging) and tells the office to redraw.
   function applyLayout(layout) {
-    LAYOUT = { desks: { ...((layout && layout.desks) || {}) }, props: { ...((layout && layout.props) || {}) } };
+    LAYOUT = { desks: { ...((layout && layout.desks) || {}) }, props: { ...((layout && layout.props) || {}) }, colors: { ...((layout && layout.colors) || {}) } };
     buildMap();
     listeners.forEach((f) => { try { f(LAYOUT); } catch (e) { console.error(e); } });
   }
@@ -285,15 +303,20 @@ window.Suma = window.Suma || {};
     Object.keys(DESK_OF).forEach((id) => {
       const [bx0, by0, w] = DESK_OF[id], [ox, oy] = deskOffset(id), dx = bx0 + ox, dy = by0 + oy;
       const x = dx * T, y = dy * T, ww = w * T;
-      R(x, y + 2, ww, 12, '#8a5a33');
-      R(x, y + 2, ww, 5, '#c48d5c'); R(x, y + 2, ww, 1, '#dcaa78'); R(x, y + 7, ww, 1, '#6a4224');
-      for (let i = 0; i < w; i++) { R(x + i * T + 4, y + 9, 8, 1, '#6a4224'); R(x + i * T + 7, y + 10, 2, 1, '#e0c080'); }
-      R(x + 1, y + 14, 2, 2, '#5a3a20'); R(x + ww - 3, y + 14, 2, 2, '#5a3a20');
+      const top = (LAYOUT.colors && LAYOUT.colors[id]) || '#c48d5c';
+      R(x, y + 2, ww, 12, shade(top, 0.7));
+      R(x, y + 2, ww, 5, top); R(x, y + 2, ww, 1, shade(top, 1.15)); R(x, y + 7, ww, 1, shade(top, 0.54));
+      for (let i = 0; i < w; i++) { R(x + i * T + 4, y + 9, 8, 1, shade(top, 0.54)); R(x + i * T + 7, y + 10, 2, 1, '#e0c080'); }
+      R(x + 1, y + 14, 2, 2, shade(top, 0.46)); R(x + ww - 3, y + 14, 2, 2, shade(top, 0.46));
     });
     // papers & mug on Phil's desk, sketches
     { const [ox, oy] = deskOffset('phil'), a = ox * T, b = oy * T;
       R(11 * T + 2 + a, 5 * T + 3 + b, 8, 3, '#ffffff'); R(11 * T + 4 + a, 5 * T + 2 + b, 7, 3, '#f8f0d8'); R(11 * T + 5 + a, 5 * T + 3 + b, 4, 1, '#88a0d0');
       R(10 * T + 4 + a, 5 * T + 3 + b, 3, 3, '#e05050'); R(10 * T + 7 + a, 5 * T + 4 + b, 1, 1, '#e05050'); }
+    // the design desk: a tilted drafting board with a sketch and pencils
+    { const [ox, oy] = deskOffset('iris'), x = (10 + ox) * T, y = (7 + oy) * T;
+      R(x + 1, y - 4, 14, 9, '#f8f4ea'); R(x + 1, y - 4, 14, 1, '#d8d0c0'); R(x + 3, y - 2, 6, 4, '#c0d8f0'); R(x + 4, y - 1, 3, 1, '#d0508a'); R(x + 10, y - 2, 3, 1, '#7a7a8a'); R(x + 10, y, 2, 1, '#7a7a8a');
+      R(x + 2, y + 5, 3, 1, '#e8433a'); R(x + 6, y + 5, 3, 1, '#3a7ad8'); R(x + 10, y + 5, 3, 1, '#f0c040'); }
     // bug jar on September's desk
     { const [ox, oy] = deskOffset('september'), a = ox * T, b = oy * T;
       R(2 * T + 4 + a, 8 * T + 2 + b, 4, 4, '#b0e0f0'); R(2 * T + 5 + a, 8 * T + 4 + b, 2, 1, '#3a8a3a'); }

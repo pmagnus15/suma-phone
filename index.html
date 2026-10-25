@@ -37,6 +37,7 @@
   .card .q { margin-top: 2px; font-size: 16px; line-height: 1.3; }
   .card .t { color: #9a90aa; font-size: 13px; margin-top: 2px; }
   .card.call { border-color: var(--red); }
+  .pickup { flex: none; margin-left: auto; border: none; border-radius: 50%; width: 46px; height: 46px; background: #34c759; color: #fff; font-size: 20px; box-shadow: 0 3px 0 #1e8a3a; }
   .busy { color: #1f8a4a; font-size: 13px; }
   .empty { text-align: center; color: #b8b0c8; padding: 36px 12px; line-height: 1.45; }
   .rep { display: block; }
@@ -87,7 +88,7 @@
 <main id="list"></main>
 
 <div id="chat" class="hidden">
-  <div id="chat-head"><button id="back">‹ Back</button><canvas id="chat-face" width="48" height="60"></canvas><div><div id="chat-name" class="who"></div><div id="chat-role" style="color:#b8b0c8;font-size:14px"></div></div></div>
+  <div id="chat-head"><button id="back">‹ Back</button><canvas id="chat-face" width="48" height="60"></canvas><div style="flex:1"><div id="chat-name" class="who"></div><div id="chat-role" style="color:#b8b0c8;font-size:14px"></div></div><button id="chat-call" title="Call" style="font-size:22px">📞</button></div>
   <div id="log"></div>
   <div id="offline" class="offline-note" hidden></div>
   <div id="choices"></div>
@@ -104,6 +105,8 @@
 <script src="js/sprites.js"></script>
 <script src="js/world.js"></script>
 <script src="js/looks.js"></script>
+<script src="js/voice.js"></script>
+<script src="js/call.js"></script>
 <script>
 // Suma on the player's iPhone: the desk phone (teammates' questions), the team, and the reports.
 // While Suma runs (on the computer, or the night shift in the cloud) it talks to the office live.
@@ -241,7 +244,13 @@
     };
     if (S.tab === 'calls') {
       if (!calls.length) list.innerHTML = '<div class="empty">☎️<br>No calls right now.<br>When a teammate has a question, it shows up here.</div>';
-      calls.forEach((c) => card(c.npc, '<div class="who">' + esc(name(c.npc)) + '</div><div class="q">' + esc(c.question) + '</div><div class="t">' + ago(c.at) + (c.taskTitle ? ' · ' + esc(c.taskTitle) : '') + '</div>', 'call', () => openChat(c.npc)));
+      calls.forEach((c) => {
+        card(c.npc, '<div class="who">' + esc(name(c.npc)) + '</div><div class="q">' + esc(c.question) + '</div><div class="t">' + ago(c.at) + (c.taskTitle ? ' · ' + esc(c.taskTitle) : '') + '</div>', 'call', () => openChat(c.npc));
+        const pick = document.createElement('button');
+        pick.className = 'pickup'; pick.title = 'Pick up'; pick.textContent = '📞';
+        pick.onclick = (e) => { e.stopPropagation(); startCall(c.npc, c); };
+        list.lastElementChild.appendChild(pick);
+      });
       settings(list);
     } else if (S.tab === 'team') {
       Object.keys(NPCS).forEach((id) => card(id, '<div class="who">' + esc(name(id)) + '</div><div class="role">' + esc(NPCS[id].role) + '</div>' + (live && tm.npcs && tm.npcs[id] && tm.npcs[id].busy ? '<div class="busy">● working</div>' : ''), '', () => openChat(id)));
@@ -323,6 +332,39 @@
     if (lastIsNpc && !mine.length && !(S.live && h.busy)) choices.slice(0, 5).forEach((t) => { const b = document.createElement('button'); b.textContent = t; b.onclick = () => send(t); $('#choices').appendChild(b); });
     log.scrollTop = log.scrollHeight;
   }
+  // ---- phone calls (js/call.js): the teammate talks, you answer out loud
+  function startCall(npc, call) {
+    // They pick up where they left off: their question, or a short version of their last message.
+    const last = [...((S.hist[npc] || {}).msgs || [])].reverse().find((m) => m.role === 'npc');
+    const recap = (text) => {
+      const s = Suma.voice.sentences(text);
+      if (s.join(' ').length <= 240) return s.join(' ');
+      const q = [...s].reverse().find((x) => /\?["')\]]*$/.test(x));
+      return 'So, ' + s[0] + (q && q !== s[0] ? ' ' + q : '');
+    };
+    const opening = 'Hey ' + ((S.team && S.team.player) || (S.office && S.office.player) || 'there') + "! It's " + name(npc) + '. ' + (call ? call.question : last ? recap(last.text) : "What's up?");
+    if (!S.live) {
+      // The office is closed: their voicemail. The message is delivered when the game is open again.
+      return Suma.call.start({ npc, name: name(npc), face: face(npc, 3), voicemail: true,
+        opening: "Hi, it's " + name(npc) + '! The office is closed right now, so leave me a message after the beep and I\'ll get it as soon as we\'re back.',
+        send: async (text) => { S.outbox.push({ id: Date.now().toString(36) + Math.random().toString(36).slice(2, 6), npc, text, images: [], at: Date.now() }); store.set('outbox', S.outbox); await flushOutbox(); if (await wakeTeam()) toast('Waking up your team in the cloud… (about 2 minutes)'); return 'ok'; } });
+    }
+    Suma.call.start({ npc, name: name(npc), face: face(npc, 3), opening,
+      send: async (text) => {
+        const before = ((S.hist[npc] || {}).msgs || []).length;
+        try { await lapi('/phone/api/chat', { npc, text, call: true }); } catch { return null; }
+        // Their answer: the newest message once they've finished thinking.
+        const until = Date.now() + 240000;
+        while (Date.now() < until) {
+          await new Promise((r) => setTimeout(r, 1500));
+          let h; try { h = await lapi('/phone/api/history?npc=' + npc); } catch { continue; }
+          const last = h.history[h.history.length - 1];
+          if (!h.busy && last && last.role === 'npc' && h.history.length > before) return last.text;
+        }
+        return null;
+      },
+      onEnd: () => { if (S.open) loadChat(); else render(); } });
+  }
   function closeChat() { S.open = null; $('#chat').classList.add('hidden'); lastRender = ''; render(); }
   async function send(text) {
     const t = (text != null ? text : $('#text').value).trim();
@@ -370,6 +412,7 @@
   $('#tab-team').onclick = () => { S.tab = 'team'; render(); };
   $('#tab-reports').onclick = () => { S.tab = 'reports'; render(); };
   $('#back').onclick = closeChat;
+  $('#chat-call').onclick = () => { if (S.open) startCall(S.open, ((S.calls && S.calls.calls) || []).find((c) => c.npc === S.open)); };
   $('#send').onclick = () => send();
   $('#attach').onclick = () => $('#file').click();
   $('#file').onchange = (e) => { addPics(e.target.files); e.target.value = ''; };
