@@ -103,43 +103,101 @@ window.Suma = window.Suma || {};
   const PLAYER_LOOK = { skin: '#f0c8a0', hair: '#2a1e18', hairStyle: 'short', shirt: '#3a7ad8', pants: '#34405e', band: '#d83a3a', extras: ['cap'] };
 
   // ------------------------------------------------------------ map
+  // ------------------------------------------------------------ the layout (rearranged by the player)
+  // Every desk (with its teammate and computer) and every movable prop can be moved. The layout
+  // stores how far each one moved from its usual spot: { desks: { id: {dx, dy} }, props: { id: {dx, dy} | null } }
+  // (null = in the storage closet). Each game has its own.
+  const DESK_OF = {
+    phil: [9, 5, 3], wang: [7, 3, 2], september: [2, 8, 2], duncan: [13, 8, 2], edward: [16, 8, 2],
+    alex: [3, 12, 2], sam: [14, 5, 2], riley: [4, 6, 2], lyra: [3, 4, 2], marco: [17, 11, 2],
+    nico: [11, 13, 2], quinn: [6, 13, 2],
+    me: [12, 3, 2], // the player's own desk: reports tray + desk phone
+  };
+  const BASE = Object.fromEntries(Object.entries(NPCS).map(([id, n]) => [id, { x: n.x, y: n.y, cx: n.computer.x, cy: n.computer.y }]));
+  // Props that can move: tiles = where they stand by default; solid = you walk around them;
+  // placed = in the office from the start (newer prizes start in the storage closet).
+  const PROPS = {
+    plant1: { name: 'Potted plant', icon: '🪴', tiles: [[1, 2]], solid: true, placed: true },
+    plant2: { name: 'Potted plant', icon: '🪴', tiles: [[1, 13]], solid: true, placed: true },
+    plant3: { name: 'Potted plant', icon: '🪴', tiles: [[18, 13]], solid: true, placed: true },
+    plant4: { name: 'Potted plant', icon: '🪴', tiles: [[12, 2]], solid: true, placed: true },
+    beanbags: { name: 'Beanbags', icon: '🛋️', tiles: [[13, 13], [14, 13]], solid: false, placed: true },
+    fridge: { name: 'Mini fridge', icon: '🧊', tiles: [[17, 5]], solid: true, placed: true },
+    vending: { name: 'Vending machine', icon: '🥤', tiles: [[1, 10]], solid: true, placed: true },
+    popcorn: { name: 'Popcorn machine', icon: '🍿', tiles: [[13, 12]], solid: true, placed: true },
+    pinball: { name: 'Pinball machine', icon: '🕹️', tiles: [[16, 4]], solid: true, placed: true },
+    aquarium: { name: 'Aquarium', icon: '🐠', tiles: [[5, 9]], solid: true, placed: true },
+    statue: { name: 'Golden statue', icon: '🗿', tiles: [[12, 12]], solid: true, placed: true },
+    throne: { name: 'Royal throne', icon: '👑', tiles: [[11, 3]], solid: true, placed: true },
+  };
+  let LAYOUT = { desks: {}, props: {} };
+  const listeners = [];
+  const deskOffset = (id) => { const o = LAYOUT.desks[id]; return o ? [o.dx || 0, o.dy || 0] : [0, 0]; };
+  // Where a prop is moved to ([dx, dy]), or null when it's in the storage closet.
+  function propOffset(id) {
+    const v = LAYOUT.props[id];
+    if (v === null) return null;
+    if (v === undefined) return PROPS[id] && PROPS[id].placed ? [0, 0] : null;
+    return [v.dx || 0, v.dy || 0];
+  }
+  // The tiles something covers right now (or would cover with offset [dx, dy]).
+  function deskTiles(id, off = deskOffset(id)) {
+    const [x, y, w] = DESK_OF[id];
+    const t = []; for (let i = 0; i < w; i++) t.push([x + i + off[0], y + off[1]]);
+    if (BASE[id]) t.push([BASE[id].x + off[0], BASE[id].y + off[1]]); // where the teammate stands
+    return t;
+  }
+  function propTiles(id, off = propOffset(id)) { return off && PROPS[id] ? PROPS[id].tiles.map(([x, y]) => [x + off[0], y + off[1]]) : []; }
+
   // Solid tiles: walls, furniture, NPCs. Interactables keyed by "x,y".
   const solid = new Set();
   const things = {}; // "x,y" -> { kind, ... }
   const key = (x, y) => x + ',' + y;
   const block = (x, y, thing) => { solid.add(key(x, y)); if (thing) things[key(x, y)] = thing; };
+  function buildMap() {
+    solid.clear();
+    for (const k of Object.keys(things)) delete things[k];
+    for (let x = 0; x < W; x++) { block(x, 0); block(x, 1); block(x, H - 1); }
+    for (let y = 0; y < H; y++) { block(0, y); block(W - 1, y); }
 
-  for (let x = 0; x < W; x++) { block(x, 0); block(x, 1); block(x, H - 1); }
-  for (let y = 0; y < H; y++) { block(0, y); block(W - 1, y); }
+    for (let x = 1; x <= 5; x++) things[key(x, 1)] = { kind: 'board' };
+    for (let x = 10; x <= 14; x++) things[key(x, 1)] = { kind: 'shelf' };
+    things[key(8, 1)] = { kind: 'window' }; things[key(16, 1)] = { kind: 'window' };
+    things[key(9, 14)] = { kind: 'door' }; things[key(10, 14)] = { kind: 'door' };
 
-  for (let x = 1; x <= 5; x++) things[key(x, 1)] = { kind: 'board' };
-  for (let x = 10; x <= 14; x++) things[key(x, 1)] = { kind: 'shelf' };
-  things[key(8, 1)] = { kind: 'window' }; things[key(16, 1)] = { kind: 'window' };
-  things[key(9, 14)] = { kind: 'door' }; things[key(10, 14)] = { kind: 'door' };
+    for (const id of Object.keys(DESK_OF)) {
+      const [x, y, w] = DESK_OF[id], [dx, dy] = deskOffset(id);
+      for (let i = 0; i < w; i++) block(x + i + dx, y + dy, { kind: 'desk', desk: id });
+    }
+    // Teammates move with their desks.
+    for (const [id, b] of Object.entries(BASE)) {
+      const n = NPCS[id], [dx, dy] = DESK_OF[id] ? deskOffset(id) : [0, 0];
+      n.x = b.x + dx; n.y = b.y + dy; n.computer = { x: b.cx + dx, y: b.cy + dy };
+    }
 
-  const desks = [ // [x, y, width]
-    [9, 5, 3], [7, 3, 2], [2, 8, 2], [13, 8, 2], [16, 8, 2],
-    [3, 12, 2], [14, 5, 2], [4, 6, 2], // Alex, Sam, Riley
-    [3, 4, 2], // Lyra
-    [17, 11, 2], // Marco
-    [11, 13, 2], // Nico, by the door
-    [6, 13, 2], // Quinn
-    [12, 3, 2], // the player's own desk: reports tray + desk phone
-  ];
-  desks.forEach(([x, y, w]) => { for (let i = 0; i < w; i++) block(x + i, y, { kind: 'desk' }); });
+    block(18, 2, { kind: 'arcade' }); block(18, 3, { kind: 'arcade' });
+    block(18, 6, { kind: 'rack' }); block(18, 7, { kind: 'rack' });
+    block(15, 11, { kind: 'tv' }); block(16, 11, { kind: 'tv' });
+    block(17, 12, { kind: 'snacks' });
+    block(15, 2, { kind: 'cooler' });
+    block(1, 8, { kind: 'cabinet' });
+    block(1, 5, { kind: 'closet' }); // the storage closet: earned props, and "arrange the office"
+    block(2, 3, { kind: 'story' }); // Lyra's story board: opens the Story Map
+    const [mx, my] = deskOffset('me');
+    block(12 + mx, 3 + my, { kind: 'reports', desk: 'me' }); // the player's desk: the reports tray...
+    block(13 + mx, 3 + my, { kind: 'phone', desk: 'me' }); // ...and the desk phone
+    ['plant1', 'plant2', 'plant3', 'plant4'].forEach((id) => propTiles(id).forEach(([x, y]) => block(x, y, { kind: 'plant', prop: id })));
 
-  block(18, 2, { kind: 'arcade' }); block(18, 3, { kind: 'arcade' });
-  block(18, 6, { kind: 'rack' }); block(18, 7, { kind: 'rack' });
-  block(15, 11, { kind: 'tv' }); block(16, 11, { kind: 'tv' });
-  block(17, 12, { kind: 'snacks' });
-  block(15, 2, { kind: 'cooler' });
-  block(1, 8, { kind: 'cabinet' });
-  block(2, 3, { kind: 'story' }); // Lyra's story board: opens the Story Map
-  block(12, 3, { kind: 'reports' }); // the player's desk: the reports tray...
-  block(13, 3, { kind: 'phone' }); // ...and the desk phone
-  [[1, 2], [1, 13], [18, 13], [12, 2]].forEach(([x, y]) => block(x, y, { kind: 'plant' }));
-
-  for (const [id, n] of Object.entries(NPCS)) block(n.x, n.y, { kind: 'npc', id });
+    for (const [id, n] of Object.entries(NPCS)) block(n.x, n.y, { kind: 'npc', id });
+  }
+  // Uses a new layout (from the save, or while arranging) and tells the office to redraw.
+  function applyLayout(layout) {
+    LAYOUT = { desks: { ...((layout && layout.desks) || {}) }, props: { ...((layout && layout.props) || {}) } };
+    buildMap();
+    listeners.forEach((f) => { try { f(LAYOUT); } catch (e) { console.error(e); } });
+  }
+  const registerProps = (defs) => Object.assign(PROPS, defs);
+  buildMap();
 
   const isSolid = (x, y) => solid.has(key(x, y));
   const thingAt = (x, y) => things[key(x, y)] || null;
@@ -223,8 +281,9 @@ window.Suma = window.Suma || {};
     R(T + 2, 2 * T - 6, 5 * T - 4, 3, '#a8703a');
     R(T + 12, 2 * T - 7, 4, 1, '#ffffff'); R(T + 20, 2 * T - 7, 3, 1, '#f0d060');
 
-    // desks
-    desks.forEach(([dx, dy, w]) => {
+    // desks (wherever they've been moved)
+    Object.keys(DESK_OF).forEach((id) => {
+      const [bx0, by0, w] = DESK_OF[id], [ox, oy] = deskOffset(id), dx = bx0 + ox, dy = by0 + oy;
       const x = dx * T, y = dy * T, ww = w * T;
       R(x, y + 2, ww, 12, '#8a5a33');
       R(x, y + 2, ww, 5, '#c48d5c'); R(x, y + 2, ww, 1, '#dcaa78'); R(x, y + 7, ww, 1, '#6a4224');
@@ -232,10 +291,18 @@ window.Suma = window.Suma || {};
       R(x + 1, y + 14, 2, 2, '#5a3a20'); R(x + ww - 3, y + 14, 2, 2, '#5a3a20');
     });
     // papers & mug on Phil's desk, sketches
-    R(11 * T + 2, 5 * T + 3, 8, 3, '#ffffff'); R(11 * T + 4, 5 * T + 2, 7, 3, '#f8f0d8'); R(11 * T + 5, 5 * T + 3, 4, 1, '#88a0d0');
-    R(10 * T + 4, 5 * T + 3, 3, 3, '#e05050'); R(10 * T + 7, 5 * T + 4, 1, 1, '#e05050');
+    { const [ox, oy] = deskOffset('phil'), a = ox * T, b = oy * T;
+      R(11 * T + 2 + a, 5 * T + 3 + b, 8, 3, '#ffffff'); R(11 * T + 4 + a, 5 * T + 2 + b, 7, 3, '#f8f0d8'); R(11 * T + 5 + a, 5 * T + 3 + b, 4, 1, '#88a0d0');
+      R(10 * T + 4 + a, 5 * T + 3 + b, 3, 3, '#e05050'); R(10 * T + 7 + a, 5 * T + 4 + b, 1, 1, '#e05050'); }
     // bug jar on September's desk
-    R(2 * T + 4, 8 * T + 2, 4, 4, '#b0e0f0'); R(2 * T + 5, 8 * T + 4, 2, 1, '#3a8a3a');
+    { const [ox, oy] = deskOffset('september'), a = ox * T, b = oy * T;
+      R(2 * T + 4 + a, 8 * T + 2 + b, 4, 4, '#b0e0f0'); R(2 * T + 5 + a, 8 * T + 4 + b, 2, 1, '#3a8a3a'); }
+
+    // the storage closet (tall, against the left wall)
+    { const x = T, y = 5 * T;
+      R(x + 1, y - 12, 14, 28, '#7a4c2c'); R(x + 2, y - 11, 12, 26, '#a8703a'); R(x + 7, y - 11, 1, 26, '#7a4c2c');
+      R(x + 5, y + 1, 1, 3, '#ffd84a'); R(x + 9, y + 1, 1, 3, '#ffd84a'); R(x + 3, y - 9, 3, 2, '#c8905a'); R(x + 10, y - 9, 3, 2, '#c8905a');
+      R(x + 4, y - 15, 8, 3, '#e8433a'); R(x + 5, y - 16, 6, 1, '#ffd84a'); } // a gift box on top
 
     // filing cabinet
     R(T + 1, 8 * T - 4, 14, 19, '#8c94a8'); R(T + 1, 8 * T - 4, 14, 1, '#b0b8c8');
@@ -257,7 +324,7 @@ window.Suma = window.Suma || {};
     }
 
     // plants
-    [[1, 2], [1, 13], [18, 13], [12, 2]].forEach(([px, py]) => {
+    ['plant1', 'plant2', 'plant3', 'plant4'].map((id) => propTiles(id)[0]).filter(Boolean).forEach(([px, py]) => {
       const x = px * T, y = py * T;
       R(x + 4, y + 9, 8, 7, '#c0603a'); R(x + 4, y + 9, 8, 2, '#d8784a');
       g.fillStyle = '#3a9a4a';
@@ -317,7 +384,7 @@ window.Suma = window.Suma || {};
   // desk phone whose light blinks and handset jiggles while a teammate is calling.
   function drawMyDesk(g, t, unread, calls) {
     const R = (x, y, w, h, col) => { g.fillStyle = col; g.fillRect(x, y, w, h); };
-    const tx = 12 * T, ty = 3 * T;
+    const [ox, oy] = deskOffset('me'), tx = (12 + ox) * T, ty = (3 + oy) * T;
     // nameplate
     R(tx + 11, ty + 11, 10, 3, '#c8a040'); R(tx + 12, ty + 12, 8, 1, '#ffe08a');
     // tray with papers
@@ -325,7 +392,7 @@ window.Suma = window.Suma || {};
     R(tx + 5, ty + 3, 5, 1, '#9a90aa'); R(tx + 5, ty + 5, 4, 1, '#9a90aa');
     if (unread) { R(tx + 10, ty - 2, 5, 5, '#e04848'); R(tx + 12, ty - 1, 1, 3, '#fff'); }
     // the phone
-    const px = 13 * T + 2, py = ty + 1;
+    const px = tx + T + 2, py = ty + 1;
     const ring = calls > 0 && Math.floor(t / 180) % 6 < 3;
     const jig = ring ? (Math.floor(t / 60) % 2 ? -1 : 1) : 0;
     R(px, py + 4, 12, 7, '#2e2a3a'); R(px + 1, py + 5, 10, 5, '#3e3a4e');
@@ -410,5 +477,6 @@ window.Suma = window.Suma || {};
     }
   }
 
-  Suma.world = { T, W, H, NPCS, PLAYER_LOOK, isSolid, thingAt, drawBackground, drawMonitor, drawTV, drawArcade, drawRack, drawChalk, drawMyDesk };
+  Suma.world = { T, W, H, NPCS, PLAYER_LOOK, isSolid, thingAt, drawBackground, drawMonitor, drawTV, drawArcade, drawRack, drawChalk, drawMyDesk,
+    DESK_OF, PROPS, applyLayout, layout: () => LAYOUT, onLayout: (f) => listeners.push(f), deskOffset, propOffset, deskTiles, propTiles, registerProps };
 })();

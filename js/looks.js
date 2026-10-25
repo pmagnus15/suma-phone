@@ -20,6 +20,13 @@ window.Suma = window.Suma || {};
     { id: 'rockstar', name: 'Rock Star', icon: '🎸', unlock: { score: 9 }, look: { shirt: '#d04848', pants: '#1a1a22', accent: '#2a2a30', band: '#1a1a22' }, add: ['jacket', 'headband', 'wristband'] },
     { id: 'gold', name: 'Gold Suit', icon: '🏆', unlock: { score: 10 }, look: { shirt: '#e8b830', pants: '#c89020', accent: '#fff6c8' }, add: ['tie', 'collar', 'watch'] },
     { id: 'royal', name: 'Royal Robes', icon: '👑', unlock: { level: 8 }, look: { shirt: '#6a2a9a', pants: '#3a1a5a', accent: '#f0c040' }, add: ['vest', 'crown'] },
+    { id: 'esports', name: 'Esports Pro', icon: '🎮', unlock: { level: 3 }, look: { shirt: '#1a1a24', pants: '#2a2a34', accent: '#3ad0ff', band: '#3ad0ff' }, add: ['jacket', 'headphones', 'wristband'] },
+    { id: 'chef', name: 'Head Chef', icon: '👨‍🍳', unlock: { level: 4 }, look: { shirt: '#f4f4f0', pants: '#2a2a34', band: '#f4f4f0' }, add: ['beanie', 'collar'] },
+    { id: 'pilot', name: 'Fighter Pilot', icon: '✈️', unlock: { level: 5 }, look: { shirt: '#5a6a3a', pants: '#4a5a30', accent: '#3a2a20', band: '#3a2a20' }, add: ['jacket', 'cap', 'watch'] },
+    { id: 'zombie', name: 'Zombie', icon: '🧟', unlock: { level: 7 }, look: { skin: '#9ab08a', shirt: '#6a6a5a', pants: '#3a3a4a' }, add: ['stubble'] },
+    { id: 'superhero', name: 'Superhero', icon: '🦸', unlock: { score: 8 }, look: { shirt: '#2a5ad8', pants: '#d83a3a', accent: '#ffd84a' }, add: ['scarf', 'wristband'] },
+    { id: 'astronaut', name: 'Astronaut', icon: '👩‍🚀', unlock: { level: 9 }, look: { shirt: '#e8e8f0', pants: '#c8ccd8', accent: '#d83a3a' }, add: ['collar', 'watch'] },
+    { id: 'legend', name: 'Hall of Fame Legend', icon: '🌟', unlock: { level: 10 }, look: { shirt: '#ffd84a', pants: '#1a1a24', accent: '#ff5ad0', band: '#ff5ad0' }, add: ['jacket', 'crown', 'wristband'] },
   ];
 
   const PALETTE = {
