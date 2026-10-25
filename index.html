@@ -134,7 +134,7 @@
   const team = () => (S.team && S.team.team) || {};
   const name = (id) => (team()[id] || {}).name || (NPCS[id] || {}).name || id;
   function face(id, scale = 3) { const t = team()[id]; return Suma.sprites.portrait(id, t ? Suma.looks.apply(BASE[id], t) : BASE[id], scale); }
-  const strip = (t) => String(t || '').replace(/\[\[note\]\][\s\S]*?(\[\[\/note\]\]|$)/gi, '').replace(/\[\[\s*ask\s*:\s*([^\]]*)\]\]/gi, '\n📞 $1').replace(/\[\[[\s\S]*?\]\]/g, '').replace(/\*\*/g, '').trim();
+  const strip = (t) => String(t || '').replace(/\[\[note\]\][\s\S]*?(\[\[\/note\]\]|$)/gi, '').replace(/\[\[\s*ask\s*:\s*([^\]]*)\]\]/gi, '\n📞 $1').replace(/\[\[\s*handoff\s*:\s*([a-z.\s]+?)\s*\|[^\]]*\]\]/gi, (_, w) => { const k = w.toLowerCase().replace(/^mr\.?\s*/, '').trim(); return NPCS[k] ? '\n📨 Passed to ' + name(k) + '.' : ''; }).replace(/\[\[[\s\S]*?\]\]/g, '').replace(/\*\*/g, '').trim();
 
   // ---- sealing (AES-256-GCM, same as the office)
   const b64 = { to: (u8) => btoa(String.fromCharCode(...u8)).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, ''), from: (s) => Uint8Array.from(atob(s.replace(/-/g, '+').replace(/_/g, '/')), (c) => c.charCodeAt(0)) };
@@ -253,7 +253,7 @@
       });
       settings(list);
     } else if (S.tab === 'team') {
-      Object.keys(NPCS).forEach((id) => card(id, '<div class="who">' + esc(name(id)) + '</div><div class="role">' + esc(NPCS[id].role) + '</div>' + (live && tm.npcs && tm.npcs[id] && tm.npcs[id].busy ? '<div class="busy">● working</div>' : ''), '', () => openChat(id)));
+      Object.keys(NPCS).filter((id) => !NPCS[id].afterLaunch || (S.team && S.team.launched)).forEach((id) => card(id, '<div class="who">' + esc(name(id)) + '</div><div class="role">' + esc(NPCS[id].role) + '</div>' + (live && tm.npcs && tm.npcs[id] && tm.npcs[id].busy ? '<div class="busy">● working</div>' : ''), '', () => openChat(id)));
     } else {
       const reps = (S.reports && S.reports.reports) || [];
       if (!reps.length) list.innerHTML = '<div class="empty">📋<br>No reports yet.<br>Each time the team finishes something, a short report lands here.</div>';
@@ -349,20 +349,32 @@
         opening: "Hi, it's " + name(npc) + '! The office is closed right now, so leave me a message after the beep and I\'ll get it as soon as we\'re back.',
         send: async (text) => { S.outbox.push({ id: Date.now().toString(36) + Math.random().toString(36).slice(2, 6), npc, text, images: [], at: Date.now() }); store.set('outbox', S.outbox); await flushOutbox(); if (await wakeTeam()) toast('Waking up your team in the cloud… (about 2 minutes)'); return 'ok'; } });
     }
-    Suma.call.start({ npc, name: name(npc), face: face(npc, 3), opening,
-      send: async (text) => {
-        const before = ((S.hist[npc] || {}).msgs || []).length;
-        try { await lapi('/phone/api/chat', { npc, text, call: true }); } catch { return null; }
-        // Their answer: the newest message once they've finished thinking.
-        const until = Date.now() + 240000;
-        while (Date.now() < until) {
-          await new Promise((r) => setTimeout(r, 1500));
-          let h; try { h = await lapi('/phone/api/history?npc=' + npc); } catch { continue; }
-          const last = h.history[h.history.length - 1];
-          if (!h.busy && last && last.role === 'npc' && h.history.length > before) return last.text;
-        }
-        return null;
-      },
+    const sendTo = (who) => async (text) => {
+      let before = ((S.hist[who] || {}).msgs || []).length;
+      try { before = (await lapi('/phone/api/history?npc=' + who)).history.length; } catch {}
+      try { await lapi('/phone/api/chat', { npc: who, text, call: true }); } catch { return null; }
+      // Their answer: the newest message once they've finished thinking.
+      const until = Date.now() + 240000;
+      while (Date.now() < until) {
+        await new Promise((r) => setTimeout(r, 1200));
+        let h; try { h = await lapi('/phone/api/history?npc=' + who); } catch { continue; }
+        const last = h.history[h.history.length - 1];
+        if (!h.busy && last && last.role === 'npc' && h.history.length > before + 1) return last.text;
+      }
+      return null;
+    };
+    // The line: when a teammate has what they need, whoever has waited longest with a question comes on next.
+    const handled = new Set(call ? [call.id] : []);
+    const next = async () => {
+      await new Promise((r) => setTimeout(r, 1500)); // let the calls list catch up with the answer just given
+      const waiting = ((S.calls && S.calls.calls) || []).filter((c) => !handled.has(c.id) && NPCS[c.npc]).sort((a, b) => a.at - b.at);
+      const c = waiting[0];
+      if (!c) return null;
+      handled.add(c.id);
+      return { npc: c.npc, name: name(c.npc), face: face(c.npc, 3), send: sendTo(c.npc),
+        opening: 'Hey ' + ((S.team && S.team.player) || (S.office && S.office.player) || 'there') + ", it's " + name(c.npc) + "! Since I've got you: " + c.question };
+    };
+    Suma.call.start({ npc, name: name(npc), face: face(npc, 3), opening, send: sendTo(npc), next,
       onEnd: () => { if (S.open) loadChat(); else render(); } });
   }
   function closeChat() { S.open = null; $('#chat').classList.add('hidden'); lastRender = ''; render(); }

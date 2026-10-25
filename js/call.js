@@ -2,7 +2,8 @@
 // Looks like an iPhone call: their sprite, a timer, and Mute / Keypad / Speaker / End.
 // The teammate says hi, repeats their question, and listens: you answer out loud (or type on
 // the keypad). They answer back in their own voice, keep asking if they need more, and hang up
-// to get to work once they have what they need.
+// to get to work once they have what they need. Then the next teammate with a question for you
+// comes on the line, until nobody is waiting.
 window.Suma = window.Suma || {};
 
 (function () {
@@ -29,7 +30,14 @@ window.Suma = window.Suma || {};
   #suma-call .c-end { margin-top: 28px; width: 76px; height: 76px; border-radius: 50%; border: none; background: #ff3b30; color: #fff; font-size: 32px; cursor: pointer; box-shadow: 0 6px 18px rgba(255,59,48,.4); }
   #suma-call .c-end span { display: inline-block; transform: rotate(135deg); }`;
   let styled = false;
+  // Little things people say while they think, so the line is never dead quiet.
+  const THINK = ['Mm-hm, okay.', 'Got it. One sec.', 'Oh, nice. Let me think.', 'Okay, okay.', 'Love it. Give me a second.', 'Hmm, good one.', 'Right, right.'];
+  const STILL = ['Still here, just checking something.', 'Bear with me, almost there.', 'One more second.'];
+  const any = (a) => a[Math.floor(Math.random() * a.length)];
+  // Words that mean they're not done talking yet.
+  const TRAILING = /\b(and|but|so|or|like|um+|uh+|because|cause|then|with|the|a|an|to|maybe|if|that|which|also)\s*$/i;
 
+  // o: { npc, name, face, opening, send(text) -> reply, voicemail, next() -> next caller or null, onEnd }
   function start(o) {
     if (document.getElementById('suma-call')) return;
     if (!styled) { const st = document.createElement('style'); st.textContent = css; document.head.appendChild(st); styled = true; }
@@ -41,34 +49,39 @@ window.Suma = window.Suma || {};
       '<button class="c-end" title="End call"><span>📞</span></button>';
     document.body.appendChild(el);
     const $ = (s) => el.querySelector(s);
-    $('.c-name').textContent = o.name;
-    if (o.face) $('.c-face').appendChild(o.face);
-    const S = { live: true, muted: false, speaker: true, phase: 'ringing', started: Date.now(), rec: null, heard: '', silence: null, waiter: null };
+    // Who's on the line right now (the line can pass to the next teammate with a question).
+    let cur = { npc: o.npc, name: o.name, face: o.face, send: o.send };
+    const showCaller = () => { $('.c-name').textContent = cur.name; $('.c-face').innerHTML = ''; if (cur.face) $('.c-face').appendChild(cur.face); };
+    showCaller();
+    // A few "mm-hm"s for this call, made ahead of time (after the opening) so they play instantly.
+    const fillers = THINK.slice().sort(() => Math.random() - 0.5).slice(0, 3), still = any(STILL);
+    const warm = (npc) => { if (Suma.voice.prewarm) Suma.voice.prewarm(npc, fillers.concat([still])); };
+    const S = { live: true, muted: false, speaker: true, phase: 'ringing', started: Date.now(), rec: null, heard: '', silence: null, waiter: null, srBroken: false, pending: null };
     const caption = (html) => { $('.c-caption').innerHTML = html; $('.c-caption').scrollTop = 1e6; };
     const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
     const clock = setInterval(() => {
       const s = Math.floor((Date.now() - S.started) / 1000);
       const t = String(Math.floor(s / 60)).padStart(2, '0') + ':' + String(s % 60).padStart(2, '0');
-      $('.c-sub').textContent = S.phase === 'ringing' ? 'calling…' : t + (S.phase === 'thinking' ? ' · thinking…' : S.phase === 'listening' ? (S.muted ? ' · you\'re muted' : ' · listening') : '');
+      $('.c-sub').textContent = S.phase === 'ringing' ? 'calling…' : S.phase === 'transfer' ? 'connecting…' : t + (S.phase === 'thinking' ? ' · thinking…' : S.phase === 'listening' ? (S.muted ? ' · you\'re muted' : ' · listening') : '');
     }, 250);
     const face = (cls) => { $('.c-face').className = 'c-face' + (cls ? ' ' + cls : ''); };
 
     async function say(text) {
       S.phase = 'talking'; face('talking');
-      const words = Suma.voice.plain(text);
-      caption(esc(words));
-      if (!S.speaker) Suma.voice.setVolume(0.45); else Suma.voice.setVolume(1);
-      await Suma.voice.speak(o.npc, text);
+      caption(esc(Suma.voice.plain(text)));
+      Suma.voice.setVolume(S.speaker ? 1 : 0.45);
+      await Suma.voice.speak(cur.npc, text);
       face('');
     }
-    // Listens until they've stopped talking for a moment (or they type on the keypad).
+    // Listens until they've really finished (a longer pause if they trail off on "and..." or "um"),
+    // or they type on the keypad.
     function listen() {
       return new Promise((resolve) => {
         // They already said something while the teammate was talking.
         if (S.pending) { const p = S.pending; S.pending = null; return resolve(p); }
         S.phase = 'listening'; face('listening'); S.heard = '';
         S.waiter = resolve;
-        if (!SR) { $('.c-keypad').classList.add('on'); setKey('keypad', true); return; }
+        if (!SR || S.srBroken) { $('.c-keypad').classList.add('on'); setKey('keypad', true); return; }
         if (!S.muted) startRec();
       });
     }
@@ -85,7 +98,9 @@ window.Suma = window.Suma || {};
         S.heard = (finals + interim).trim();
         caption('<span class="you">' + esc(S.heard) + '</span>');
         clearTimeout(S.silence);
-        if (S.heard) S.silence = setTimeout(() => finish(S.heard), finals.trim() && !interim ? 1300 : 2200);
+        if (!S.heard) return;
+        const wait = TRAILING.test(S.heard) ? 3600 : finals.trim() && !interim ? 1800 : 2600;
+        S.silence = setTimeout(() => finish(S.heard), wait);
       };
       rec.onend = () => { S.rec = null; if (S.live && S.phase === 'listening' && !S.muted) setTimeout(startRec, 200); };
       rec.onerror = (e) => {
@@ -102,7 +117,10 @@ window.Suma = window.Suma || {};
       const t = String(text || '').trim();
       if (!t) return;
       // Typed while the teammate was still talking: they stop and listen, like on a real call.
-      if (!S.waiter) { if (S.phase === 'talking') { S.pending = t; caption('<span class="you">' + esc(t) + '</span>'); Suma.voice.stop(); } return; }
+      if (!S.waiter) {
+        if (S.phase === 'talking' || S.phase === 'thinking') { S.pending = t; caption('<span class="you">' + esc(t) + '</span>'); if (S.phase === 'talking') Suma.voice.stop(); }
+        return;
+      }
       stopRec();
       const w = S.waiter; S.waiter = null;
       w(t);
@@ -127,15 +145,45 @@ window.Suma = window.Suma || {};
     };
     $('.c-end').onclick = hangUp;
     const asks = (t) => /\?/.test(Suma.voice.plain(t)) || /\[\[\s*(ask|choices)\s*:/i.test(t);
-    const bye = (t) => /^(bye|goodbye|that'?s all|talk (to you )?later|gotta go|hang up)\b/i.test(t.trim());
+    const bye = (t) => /^(bye|goodbye|that'?s all|talk (to you )?later|gotta go|hang up|i'?m done)\b/i.test(t.trim());
+    const pause = (ms) => new Promise((r) => setTimeout(r, ms));
+
+    // Their answer, with a quick "mm-hm" right away and a "still here" if it takes a while,
+    // so the line never goes dead quiet while they think.
+    async function ask(text) {
+      S.phase = 'thinking'; face('');
+      let done = false, reply = null;
+      const p = Promise.resolve().then(() => cur.send(text)).then((r) => { reply = r; }, () => {}).finally(() => { done = true; });
+      await pause(350);
+      if (!done && S.live) { await Suma.voice.speak(cur.npc, any(fillers)); S.phase = 'thinking'; face(''); }
+      const still = setTimeout(() => { if (!done && S.live && S.phase === 'thinking') Suma.voice.speak(cur.npc, still); }, 9000);
+      await p;
+      clearTimeout(still);
+      return reply;
+    }
+    // The next teammate who has a question for them comes on the line.
+    async function nextCaller() {
+      const n = o.next && await o.next(cur.npc);
+      if (!n || !S.live) return false;
+      S.phase = 'transfer'; face('');
+      caption('📞 ' + esc(n.name) + ' is on the other line…');
+      beep(660, 160); await pause(260); beep(880, 160);
+      await pause(700);
+      cur = { npc: n.npc, name: n.name, face: n.face, send: n.send };
+      showCaller();
+      await say(n.opening);
+      warm(n.npc);
+      return true;
+    }
 
     (async () => {
-      await new Promise((r) => setTimeout(r, 1200)); // ringing
+      await pause(1200); // ringing
       if (!S.live) return;
       S.phase = 'talking'; S.started = Date.now();
       await say(o.opening);
+      if (!o.voicemail) warm(cur.npc);
       if (o.voicemail) {
-        beep();
+        beep(880, 450);
         const msg = await listen();
         if (!S.live) return;
         if (msg) { await o.send(msg); await say('Got it, thanks! It goes to the team as soon as the office opens.'); }
@@ -146,18 +194,23 @@ window.Suma = window.Suma || {};
         if (!S.live || heard === null) return;
         caption('<span class="you">' + esc(heard) + '</span>');
         if (bye(heard)) { await say('Talk soon!'); return hangUp(); }
-        S.phase = 'thinking'; face('');
-        let reply = null;
-        try { reply = await o.send(heard); } catch {}
+        const reply = await ask(heard);
         if (!S.live) return;
         if (!reply) { await say("Sorry, I lost you there for a second. Can you say that again?"); continue; }
         await say(reply);
         if (!S.live) return;
-        // No more questions: they've got what they need, and get to work.
-        if (!asks(reply) && !S.pending) { await new Promise((r) => setTimeout(r, 900)); if (!S.pending) return hangUp(); }
+        // No more questions: they've got what they need and get to work. Anyone else waiting?
+        if (!asks(reply) && !S.pending) {
+          await pause(500);
+          if (S.pending) continue;
+          if (await nextCaller()) continue;
+          if (!S.live) return;
+          await pause(400);
+          return hangUp();
+        }
       }
     })();
-    function beep() { try { const a = new (window.AudioContext || window.webkitAudioContext)(); const osc = a.createOscillator(); osc.frequency.value = 880; osc.connect(a.destination); osc.start(); setTimeout(() => { osc.stop(); a.close(); }, 450); } catch {} }
+    function beep(freq = 880, ms = 450) { try { const a = new (window.AudioContext || window.webkitAudioContext)(); const osc = a.createOscillator(); const gain = a.createGain(); gain.gain.value = 0.15; osc.frequency.value = freq; osc.connect(gain); gain.connect(a.destination); osc.start(); setTimeout(() => { osc.stop(); a.close(); }, ms); } catch {} }
     return { hangUp };
   }
   Suma.call = { start, canListen: !!SR };
