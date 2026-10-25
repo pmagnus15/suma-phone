@@ -77,8 +77,21 @@ window.Suma = window.Suma || {};
       .replace(/([.!?])\.+/g, '$1')
       .replace(/\s+/g, ' ').replace(/\s+([.,!?;:])/g, '$1').trim();
   }
-  function sentences(text) {
-    return (plain(text).match(/[^.!?…]+[.!?…]+["')\]]*|[^.!?…]+$/g) || []).map((x) => x.trim()).filter(Boolean);
+  // A sentence too long for one breath is split at commas (then between words). Long phrases get cut
+  // off by the voices: Kokoro stops after about 500 sounds, and Edge's voices after about 15 seconds.
+  function breathe(s, max) {
+    if (s.length <= max) return [s];
+    const out = [];
+    let cur = '';
+    const add = (piece) => { if (cur && (cur + ' ' + piece).length > max) { out.push(cur); cur = ''; } cur = cur ? cur + ' ' + piece : piece; };
+    for (const part of s.split(/(?<=[,;:])\s+/)) {
+      if (part.length > max) part.split(/\s+/).forEach(add); else add(part);
+    }
+    if (cur) out.push(cur);
+    return out;
+  }
+  function sentences(text, max = 180) {
+    return (plain(text).match(/[^.!?…]+[.!?…]+["')\]]*|[^.!?…]+$/g) || []).map((x) => x.trim()).filter(Boolean).flatMap((x) => breathe(x, max));
   }
   // Whole phrases of a few sentences: the voice keeps its rhythm inside a phrase, so it sounds like
   // someone talking instead of a list being read out. A question always ends its phrase.
@@ -150,7 +163,7 @@ window.Suma = window.Suma || {};
       const p = PEOPLE[id] || DEFAULT;
       const v = pick(id);
       const natural = !!(v && isNatural(v));
-      const list = phrases(text, natural ? 240 : 140);
+      const list = phrases(text, natural ? 180 : 140);
       if (!list.length) return resolve(true);
       let i = 0;
       const next = () => {
