@@ -264,6 +264,7 @@ window.Suma = window.Suma || {};
       block(13 + mx, 3 + my, { kind: 'phone', desk: 'me' }); // ...and the desk phone
     }
     ['plant1', 'plant2', 'plant3', 'plant4'].forEach((id) => propTiles(id).forEach(([x, y]) => block(x, y, { kind: 'plant', prop: id })));
+    propTiles('stopsign').forEach(([x, y]) => block(x, y, { kind: 'stop', prop: 'stopsign' })); // the big red stop sign
 
     for (const [id, n] of Object.entries(NPCS)) if (npcHere(id)) block(n.x, n.y, { kind: 'npc', id });
   }
@@ -275,8 +276,35 @@ window.Suma = window.Suma || {};
     const onStairs = (tiles) => tiles.some(([x, y]) => STAIRS.concat([LANDING]).some(([a, b]) => a === x && b === y));
     for (const id of Object.keys(L.desks)) if (DESK_OF[id] && onStairs(deskTiles(id, [L.desks[id].dx || 0, L.desks[id].dy || 0]))) delete L.desks[id];
     for (const [id, v] of Object.entries(L.props)) if (v && PROPS[id] && onStairs(PROPS[id].tiles.map(([x, y]) => [x + (v.dx || 0), y + (v.dy || 0)]))) L.props[id] = null;
+    if (PROPS.stopsign && L.props.stopsign === undefined) placeStopSign(L);
     L.v = 3;
     return L;
+  }
+  // The stop sign came after people arranged their offices: if something already stands on its
+  // spot (by the door), it goes to the nearest free tile on the main floor instead.
+  function placeStopSign(L) {
+    const taken = new Set([...STAIRS, LANDING, ...FLOORS[0].keepFree, ...FLOORS[0].fixtures].map(([x, y]) => key(x, y)));
+    for (const id of Object.keys(DESK_OF)) {
+      const o = L.desks[id];
+      if ((o && (o.f === 0 || o.f === 1) ? o.f : (HOME_FLOOR[id] || 0)) !== 0) continue;
+      deskTiles(id, o ? [o.dx || 0, o.dy || 0] : [0, 0]).forEach(([x, y]) => taken.add(key(x, y)));
+    }
+    for (const [id, d] of Object.entries(PROPS)) {
+      if (id === 'stopsign') continue;
+      const v = L.props[id];
+      if (v === null || (v === undefined && !d.placed) || (v && v.f === 1)) continue;
+      d.tiles.forEach(([x, y]) => taken.add(key(x + ((v && v.dx) || 0), y + ((v && v.dy) || 0))));
+    }
+    for (const [id, n] of Object.entries(NPCS)) if (!DESK_OF[id] && BASE[id]) taken.add(key(BASE[id].x, BASE[id].y));
+    const [hx, hy] = PROPS.stopsign.tiles[0];
+    if (!taken.has(key(hx, hy))) return;
+    let best = null;
+    for (let y = 3; y <= H - 2; y++) for (let x = 1; x <= W - 2; x++) {
+      if (taken.has(key(x, y))) continue;
+      const d = Math.abs(x - hx) + Math.abs(y - hy);
+      if (!best || d < best.d) best = { x, y, d };
+    }
+    if (best) L.props.stopsign = { dx: best.x - hx, dy: best.y - hy, f: 0 };
   }
   // Uses a new layout (from the save, or while arranging) and tells the office to redraw.
   function applyLayout(layout) {
