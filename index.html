@@ -72,6 +72,10 @@
   #pics { display: flex; gap: 6px; padding: 0 12px 6px; }
   #pics img { width: 54px; height: 54px; object-fit: cover; border-radius: 8px; border: 2px solid var(--gold); }
   .offline-note { margin: 0 14px 8px; padding: 8px 10px; border-radius: 10px; background: #2a2140; color: #c8c0d8; font-size: 14px; line-height: 1.35; }
+  #note-box { margin: 12px 14px 0; display: flex; flex-direction: column; gap: 6px; }
+  #note-box[hidden] { display: none; }
+  #note-box textarea { font: inherit; font-size: 17px; border-radius: 12px; border: 2px solid var(--line); padding: 9px 10px; resize: none; background: #fff; color: var(--ink); }
+  #note-box button { align-self: flex-end; font: inherit; font-size: 16px; padding: 8px 14px; border-radius: 12px; border: 2px solid var(--gold); background: var(--gold); color: var(--ink); }
   .hint { color: #8a809a; font-size: 13px; text-align: center; margin-top: 16px; line-height: 1.4; }
 </style>
 </head>
@@ -85,6 +89,7 @@
     <button id="tab-reports">📋 Reports</button>
   </nav>
 </header>
+<div id="note-box" hidden><textarea id="note-text" rows="2" placeholder="📝 Leave a note for the team: an idea, a fix, anything. Tap 🎤 on your keyboard to say it."></textarea><button id="note-send">📌 Leave it on my desk</button></div>
 <main id="list"></main>
 
 <div id="chat" class="hidden">
@@ -194,6 +199,11 @@
   // ---- answers: live when the office is running, otherwise kept and sent through the relay
   async function flushOutbox() {
     for (const m of S.outbox.slice()) {
+      if (m.npc === '_desk') { // a note for the desk: the right teammate picks it up
+        if (S.live) { try { await lapi('/phone/api/note', { id: m.id, text: m.text }); S.outbox = S.outbox.filter((x) => x.id !== m.id); } catch {} }
+        else if (!m.relayed || Date.now() - m.relayed > 10 * 3600000) { try { if (await relay({ type: 'note', id: m.id, text: m.text, at: m.at, save: S.office && S.office.save })) m.relayed = Date.now(); } catch {} }
+        continue;
+      }
       if (S.live) {
         try { await lapi('/phone/api/chat', { npc: m.npc, text: m.text, images: (m.images || []).map((d) => ({ dataUrl: d })), answerId: m.id }); S.outbox = S.outbox.filter((x) => x.id !== m.id); } catch {}
       } else if ((!m.relayed || Date.now() - m.relayed > 10 * 3600000) && !(m.images || []).length) {
@@ -228,6 +238,7 @@
     }
     const office = S.office;
     const live = S.live;
+    $('#note-box').hidden = S.tab !== 'calls';
     $('#status').textContent = live ? '🟢 Office open' : office && office.online === false ? '🌙 Office closed' : '🌙 Office closed';
     $('#status').classList.toggle('on', live);
     const tm = S.team || {};
@@ -421,6 +432,15 @@
     };
   }
   $('#tab-calls').onclick = () => { S.tab = 'calls'; render(); };
+  $('#note-send').onclick = async () => {
+    const t = $('#note-text').value.trim();
+    if (!t) return $('#note-text').focus();
+    S.outbox.push({ id: Date.now().toString(36) + Math.random().toString(36).slice(2, 6), npc: '_desk', text: t, images: [], at: Date.now() });
+    store.set('outbox', S.outbox);
+    $('#note-text').value = '';
+    await checkLive(); await flushOutbox();
+    toast(S.live ? '📝 Left on your desk. A teammate is picking it up.' : '📝 Saved. It lands on your desk as soon as the office opens.');
+  };
   $('#tab-team').onclick = () => { S.tab = 'team'; render(); };
   $('#tab-reports').onclick = () => { S.tab = 'reports'; render(); };
   $('#back').onclick = closeChat;

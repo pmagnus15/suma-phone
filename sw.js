@@ -1,7 +1,7 @@
 // Suma phone app: opens instantly (the app is kept on the phone), and shows a notification when
 // a teammate calls. The push itself is empty; the app reads the newest calls from the relay and
 // unlocks them with the key saved on this phone.
-const SHELL = 'suma-shell-v7';
+const SHELL = 'suma-shell-v8';
 const FILES = ['./', 'index.html', 'manifest.webmanifest', 'icon-192.png', 'apple-touch-icon.png', 'js/sprites.js', 'js/world.js', 'js/looks.js', 'js/voice.js', 'js/call.js'];
 
 self.addEventListener('install', (e) => { e.waitUntil(caches.open(SHELL).then((c) => c.addAll(FILES)).catch(() => {})); self.skipWaiting(); });

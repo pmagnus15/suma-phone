@@ -640,7 +640,7 @@ window.Suma = window.Suma || {};
 
   // The player's desk: a tray of report papers (a red dot with the number of new ones) and a
   // desk phone whose light blinks and handset jiggles while a teammate is calling.
-  function drawMyDesk(g, t, unread, calls) {
+  function drawMyDesk(g, t, unread, calls, notes) {
     const R = (x, y, w, h, col) => { g.fillStyle = col; g.fillRect(x, y, w, h); };
     const [ox, oy] = deskOffset('me'), tx = (12 + ox) * T, ty = (3 + oy) * T;
     // nameplate
@@ -649,6 +649,8 @@ window.Suma = window.Suma || {};
     R(tx + 2, ty + 3, 11, 7, '#7a5a3a'); R(tx + 3, ty + 2, 9, 6, '#fffaf0'); R(tx + 4, ty + 1, 8, 6, '#f4ecd8');
     R(tx + 5, ty + 3, 5, 1, '#9a90aa'); R(tx + 5, ty + 5, 4, 1, '#9a90aa');
     if (unread) { R(tx + 10, ty - 2, 5, 5, '#e04848'); R(tx + 12, ty - 1, 1, 3, '#fff'); }
+    // a sticky note Jared left for the team (until someone picks it up)
+    if (notes) { R(tx + T - 5, ty + 7, 8, 7, '#ffe45a'); R(tx + T - 5, ty + 7, 8, 1, '#f0c020'); R(tx + T - 4, ty + 9, 6, 1, '#b08a2a'); R(tx + T - 4, ty + 11, 4, 1, '#b08a2a'); }
     // the phone
     const px = tx + T + 2, py = ty + 1;
     const ring = calls > 0 && Math.floor(t / 180) % 6 < 3;
