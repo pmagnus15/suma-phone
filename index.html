@@ -343,49 +343,59 @@
     if (lastIsNpc && !mine.length && !(S.live && h.busy)) choices.slice(0, 5).forEach((t) => { const b = document.createElement('button'); b.textContent = t; b.onclick = () => send(t); $('#choices').appendChild(b); });
     log.scrollTop = log.scrollHeight;
   }
-  // ---- phone calls (js/call.js): the teammate talks, you answer out loud
+  // ---- phone calls (js/call.js): a message-thread call; the teammate talks, you answer out loud or type
   function startCall(npc, call) {
-    // They pick up where they left off: their question, or a short version of their last message.
-    const last = [...((S.hist[npc] || {}).msgs || [])].reverse().find((m) => m.role === 'npc');
+    const who = (S.team && S.team.player) || (S.office && S.office.player) || 'there';
+    const histOf = (id) => ((S.hist[id] || {}).msgs || []);
     const recap = (text) => {
-      const s = Suma.voice.sentences(text);
-      if (s.join(' ').length <= 240) return s.join(' ');
+      const s = Suma.voice.sentences(Suma.voice.plain(text));
+      if (s.join(' ').length <= 260) return s.join(' ');
       const q = [...s].reverse().find((x) => /\?["')\]]*$/.test(x));
       return 'So, ' + s[0] + (q && q !== s[0] ? ' ' + q : '');
     };
-    const opening = 'Hey ' + ((S.team && S.team.player) || (S.office && S.office.player) || 'there') + "! It's " + name(npc) + '. ' + (call ? call.question : last ? recap(last.text) : "What's up?");
+    // Opens with what they're on and why they're asking, so the question makes sense on its own.
+    const openingFor = (id, c, first) => {
+      const hi = first ? 'Hey ' + who + "! It's " + name(id) + '. ' : 'Hey ' + who + ", it's " + name(id) + "! Since I've got you: ";
+      if (c) return hi + (c.taskTitle ? "I'm working on " + c.taskTitle + ', and I need one thing from you. ' : '') + c.question;
+      const last = [...histOf(id)].reverse().find((m) => m.role === 'npc');
+      return hi + (last ? recap(last.text) : "What's up?");
+    };
     if (!S.live) {
       // The office is closed: their voicemail. The message is delivered when the game is open again.
-      return Suma.call.start({ npc, name: name(npc), face: face(npc, 3), voicemail: true,
+      return Suma.call.start({ npc, name: name(npc), face: face(npc, 3), voicemail: true, history: histOf(npc),
         opening: "Hi, it's " + name(npc) + '! The office is closed right now, so leave me a message after the beep and I\'ll get it as soon as we\'re back.',
         send: async (text) => { S.outbox.push({ id: Date.now().toString(36) + Math.random().toString(36).slice(2, 6), npc, text, images: [], at: Date.now() }); store.set('outbox', S.outbox); await flushOutbox(); if (await wakeTeam()) toast('Waking up your team in the cloud… (about 2 minutes)'); return 'ok'; } });
     }
-    const sendTo = (who) => async (text) => {
-      let before = ((S.hist[who] || {}).msgs || []).length;
-      try { before = (await lapi('/phone/api/history?npc=' + who)).history.length; } catch {}
-      try { await lapi('/phone/api/chat', { npc: who, text, call: true }); } catch { return null; }
-      // Their answer: the newest message once they've finished thinking.
+    // Sends what they said, then watches the teammate write: their words stream into the call as they
+    // come, and the answer is their newest message once they're done. (Matched by time, not by
+    // counting messages: the office only sends the last few.)
+    const sendTo = (id) => async (text, onText) => {
+      let lastTs = 0;
+      try { const h = await lapi('/phone/api/history?npc=' + id); const m = h.history.filter((x) => x.role === 'npc').pop(); lastTs = m ? m.ts : 0; } catch {}
+      try { const r = await lapi('/phone/api/chat', { npc: id, text, call: true }); if (r && r.queued) return "I'm right in the middle of something, but I've got your message. I'll answer in our chat the second I'm done. Talk soon!"; } catch { return null; }
       const until = Date.now() + 240000;
+      let seenBusy = false;
       while (Date.now() < until) {
-        await new Promise((r) => setTimeout(r, 1200));
-        let h; try { h = await lapi('/phone/api/history?npc=' + who); } catch { continue; }
+        await new Promise((r) => setTimeout(r, 700));
+        let h; try { h = await lapi('/phone/api/history?npc=' + id); } catch { continue; }
+        if (h.busy) { seenBusy = true; if (h.draft && onText) onText(h.draft); continue; }
         const last = h.history[h.history.length - 1];
-        if (!h.busy && last && last.role === 'npc' && h.history.length > before + 1) return last.text;
+        if (last && last.role === 'npc' && last.ts > lastTs && (seenBusy || h.history.some((x) => x.role === 'user' && x.ts > lastTs))) return last.text;
       }
       return null;
     };
     // The line: when a teammate has what they need, whoever has waited longest with a question comes on next.
     const handled = new Set(call ? [call.id] : []);
     const next = async () => {
-      await new Promise((r) => setTimeout(r, 1500)); // let the calls list catch up with the answer just given
+      await new Promise((r) => setTimeout(r, 1200)); // let the calls list catch up with the answer just given
       const waiting = ((S.calls && S.calls.calls) || []).filter((c) => !handled.has(c.id) && NPCS[c.npc]).sort((a, b) => a.at - b.at);
       const c = waiting[0];
       if (!c) return null;
       handled.add(c.id);
-      return { npc: c.npc, name: name(c.npc), face: face(c.npc, 3), send: sendTo(c.npc),
-        opening: 'Hey ' + ((S.team && S.team.player) || (S.office && S.office.player) || 'there') + ", it's " + name(c.npc) + "! Since I've got you: " + c.question };
+      return { npc: c.npc, name: name(c.npc), face: face(c.npc, 3), send: sendTo(c.npc), history: histOf(c.npc), opening: openingFor(c.npc, c, false) };
     };
-    Suma.call.start({ npc, name: name(npc), face: face(npc, 3), opening, send: sendTo(npc), next,
+    Suma.call.start({ npc, name: name(npc), face: face(npc, 3), opening: openingFor(npc, call, true), history: histOf(npc), choices: call && call.choices,
+      send: sendTo(npc), next, openChat: (id) => openChat(id),
       onEnd: () => { if (S.open) loadChat(); else render(); } });
   }
   function closeChat() { S.open = null; $('#chat').classList.add('hidden'); lastRender = ''; render(); }
